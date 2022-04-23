@@ -218,24 +218,28 @@ class ImageRecognizer:
     Class to take an image and recognize all the text on it.
     """
 
-
     def __init__(self, path_tsr: str):
-            """
-            :param path_tsr: Path to Tesseract engine .exe
-            """
+        """
+        :param path_tsr: Path to Tesseract engine .exe
+        """
 
-            self.path_tsr = path_tsr
+        self.path_tsr = path_tsr
 
-            # Avoid website certificate validation errors
-            ssl._create_default_https_context = ssl._create_unverified_context
+        # Avoid website certificate validation errors
+        ssl._create_default_https_context = ssl._create_unverified_context
 
-            # Point pytesseract to the Tesseract engine's .exe
-            pytesseract.tesseract_cmd = self.path_tsr
+        # Point pytesseract to the Tesseract engine's .exe
+        pytesseract.tesseract_cmd = self.path_tsr
 
-    def parse_txt_from_img(self, img_url):
+    def parse_txt_from_img(self, img_url, psm):
         """
         Parse a web image to retrieve all the text from it.
         """
+
+        # Check arguments
+        if psm not in range(0, 14):
+            err_msg = "Please provide Page Segmentation Mode as an integer between 0 and 13"
+            return err_msg
 
         # Download the image
         try:
@@ -252,12 +256,25 @@ class ImageRecognizer:
             return err_msg
 
         # Recognize text from the image
-        # Tesseract has a different modes of text recognitions
-        # The ones worked the best for us are:
-        #   - 6 => Assume a single uniform block of text
-        #   - 11 => Sparse text. Find as much text as possible in no particular order
-        #   - 12 => Sparse text with OSD
-        img_txt = pytesseract.image_to_string(img, config='--psm 11')
+        # Tesseract has different page segmentation modes that might improve on recognition results
+        # The ones worked the best for us are 6, 11, 12
+        # Page segmentation modes:
+        #    - 0 => Orientation and script detection (OSD) only
+        #    - 1 => Automatic page segmentation with OSD
+        #    - 2 => Automatic page segmentation, but no OSD, or OCR
+        #    - 3 => Fully automatic page segmentation, but no OSD (Default)
+        #    - 4 => Assume a single column of text of variable sizes
+        #    - 5 => Assume a single uniform block of vertically aligned text
+        #    - 6 => Assume a single uniform block of text
+        #    - 7 => Treat the image as a single text line
+        #    - 8 => Treat the image as a single word
+        #    - 9 => Treat the image as a single word in a circle
+        #    - 10 => Treat the image as a single character
+        #    - 11 => Sparse text. Find as much text as possible in no particular order
+        #    - 12 => Sparse text with OSD
+        #    - 13 => Raw line. Treat the image as a single text line, bypassing hacks that are Tesseract-specific
+
+        img_txt = pytesseract.image_to_string(img, config=f'--psm {psm}')
 
         # Get rid of white spaces
         p = re.compile(r"\s+")
