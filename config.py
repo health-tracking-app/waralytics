@@ -1,5 +1,7 @@
 # URL to parse
-url_ua_ru_loss = 'https://www.oryxspioenkop.com/2022/02/attack-on-europe-documenting-equipment.html'
+url_ru_loss = 'https://www.oryxspioenkop.com/2022/02/attack-on-europe-documenting-equipment.html'
+url_ua_loss = 'https://www.oryxspioenkop.com/2022/02/attack-on-europe-documenting-ukrainian.html'
+
 
 # Path to the Tesseract engine
 # https://github.com/UB-Mannheim/tesseract/wiki
