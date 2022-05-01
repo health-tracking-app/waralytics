@@ -116,15 +116,15 @@ class WebParser:
             txt = txt.lower()
             arm_prd = ""
             if "soviet" in txt and "union" in txt:
-                arm_prd = "Soviet Union"
+                arm_prd = "USSR"
             elif "russia" in txt:
-                arm_prd = "Russia"
+                arm_prd = "Russian Federation"
             elif "belarus" in txt:
                 arm_prd = "Belarus"
             elif "italy" in txt:
                 arm_prd = "Italy"
             elif "czech" in txt and "republic" in txt:
-                arm_prd = "Czech Republic"
+                arm_prd = "Czechia"
             elif "israel" in txt:
                 arm_prd = "Israel"
             elif "poland" in txt:
