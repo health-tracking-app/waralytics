@@ -2,6 +2,7 @@ import ssl
 import requests
 from requests.adapters import HTTPAdapter, Retry
 import requests_html
+from sqlalchemy import create_engine
 import imutils
 import re
 from datetime import datetime
@@ -618,3 +619,244 @@ class DateParser:
             date_dt = self.convert_txt_to_date(date_txt)
 
         return date_dt
+
+
+class DataReconciliation:
+    """
+    Class to handle Postgres database connection and data update.
+    """
+
+    def __init__(self, username, password, host, port, db_name):
+
+        self.nd = None
+        self.update_data = None
+        self.od_cat = None
+        self.od_type = None
+        self.countries = None
+        self.od_item = None
+        self.curr_type = None
+        self.reconciled_df = None
+
+        # Connect to Postgres DB
+        conn_string = "postgresql+psycopg2://postgres:" + username + ":" + password + "@" + \
+                      host + ":" + port + "//" + db_name
+        self.engine = create_engine(conn_string)
+
+    def update_db_step_1(self, df_new):
+        """
+        Update database with a new data (equipment categories and models).
+        """
+
+        # Define new data
+        self.nd = df_new
+
+        # Extract required data from a database
+        self.extract_data_from_db()
+
+        # Data to be compared during reconciliation:
+        # old_data (from the db) = od
+        # new_data (from the parser) = nd
+
+        # We update database in the following order:
+        # 1. Category
+        # 2. Models
+        # 3. Items
+
+        self.update_eq_categories()
+        self.update_eq_models()
+        self.reconcile_eq_items()
+
+    def update_db_step_2(self, df_new):
+        """
+        Update database with a new data (daily equipment losses).
+        """
+
+        # Redefine new data (it contains now a column with Event Date)
+        self.update_data = df_new
+
+        # Update db with daily losses
+        self.update_eq_items()
+
+    def extract_data_from_db(self):
+        # Get a list of all equipment categories currently in use (from equipment_categories)
+        self.od_cat = pd.read_sql_query('select * from public.equipment_categories', con=self.engine)
+        # Get the list of all equipment models currently in use
+        self.od_type = pd.read_sql_query('select * from public.equipment_types_decoded', con=self.engine)
+        # Get the list of all equipment categories currently in use (from countries_orgs)
+        self.countries = pd.read_sql_query('select * from public.countries_orgs', con=self.engine)
+        # Get the list of all items currently reported in logs
+        self.od_item = pd.read_sql_query('select * from public.daily_losses_log_decoded', con=self.engine)
+        # Get the list of all equipment models currently in use
+        self.curr_type = pd.read_sql_query('select * from public.equipment_types', con=self.engine)
+
+    def update_eq_categories(self):
+        """
+        Reconcile and update a list of equipment categories.
+        """
+
+        # Get a list of all equipment categories currently in use (from equipment_categories)
+        od_cat = self.od_cat
+
+        # Create a list of unique equipment categories for new data
+        cat_upd = self.nd[['Equipment Category', 'Equipment Type']].drop_duplicates()
+
+        # Reconcile new vs old data:
+        # 'Equipment Category' = 'c_eng_name'
+        cat_upd = pd.merge(cat_upd, od_cat, how='left', left_on='Equipment Category', right_on='c_eng_name')
+        # Keep only items not yet present in the database
+        cat_upd.fillna('New', inplace=True)
+        cat_upd = cat_upd[cat_upd.c_eng_name == 'New']
+
+        # Feed equipment_categories table w/ unique categories
+        if cat_upd.shape[0] > 0:
+            for index, row in cat_upd.iterrows():
+                self.engine.execute("insert into public.equipment_categories(c_type, c_eng_name) values "
+                                    "('" + row["Equipment Type"] + "','" + row["Equipment Category"] + "')")
+
+        # Report progress
+        print('######### Added ' + str(cat_upd.shape[0]) + ' items to the categories')
+
+        # Get updated od_cat df
+        self.od_cat = pd.read_sql_query('select * from public.equipment_categories', con=self.engine)
+
+    def update_eq_models(self):
+        """
+        Reconcile and update a list of equipment models.
+        """
+
+        # Get the list of all equipment models currently in use
+        od_type = self.od_type
+        # Get the list of all equipment categories currently in use (from countries_orgs)
+        countries = self.countries
+        # Get a list of all equipment categories currently in use (from equipment_categories)
+        od_cat = self.od_cat
+
+        # Create a key for the old data
+        od_type['key'] = od_type['category_l2_eng_encoded'].str.lower() + od_type['series_number'].str.lower() + \
+                         od_type['country_of_origin_name'].str.lower()
+        od_type['key'] = od_type['key'].str.replace(r'[^\d\w]', '', regex=True)
+
+        # Create df for the parsed data with unique equipment models
+        type_upd = self.nd[['Equipment Category', 'Equipment Model', 'Equipment Producer']].drop_duplicates()
+        # Change column names to match old data
+        rename_cols = {'Equipment Producer': 'country_of_origin_name', 'Equipment Category': 'category_l2_eng_encoded',
+                       'Equipment Model': 'series_number'}
+        type_upd.rename(columns=rename_cols, inplace=True)
+        # Create a key for the new data
+        type_upd['key'] = type_upd['category_l2_eng_encoded'].str.lower() + type_upd['series_number'].str.lower() + \
+                          type_upd['country_of_origin_name'].str.lower()
+        type_upd['key'] = type_upd['key'].str.replace(r'[^\d\w]', '', regex=True)
+
+        # Reconcile new vs old data
+        type_upd = pd.merge(type_upd, od_type, how='left', on='key')
+        # Drop only those cases where the type does not exist in the old data
+        type_upd.fillna('New', inplace=True)
+        type_upd = type_upd[type_upd.series_number_y == 'New']
+
+        # Do 2-steps reconciliation
+        # Source foreign key = country_of_origin_id
+        type_upd = pd.merge(type_upd, countries, how='left', left_on='country_of_origin_name_x', right_on='full_name')
+        # Source foreign key = equipment_categories_id
+        type_upd = pd.merge(type_upd, od_cat, how='left', left_on='category_l2_eng_encoded_x', right_on='c_eng_name')
+
+        # Get rid of unnecessary columns and rename them
+        type_upd = type_upd[['id_y', 'series_number_x', 'id_x']]
+        type_upd = type_upd.rename(columns={'id_y': 'category_type_id', 'series_number_x': 'series_number',
+                                            'id_x': 'country_of_origin_id'})
+
+        # Feed equipment_categories table w/ unique categories
+        if type_upd.shape[0] > 0:
+            for index, row in type_upd.iterrows():
+                self.engine.execute("insert into public.equipment_types(category_type_id, series_number, country_of_origin_id) "
+                                    "values (" + str(row.category_type_id) + ",'" + str(row.series_number) + "'," +
+                                    str(row.country_of_origin_id) + ")")
+
+        # Report progress
+        print('######### Added ' + str(type_upd.shape[0]) + ' items to the models')
+
+    def reconcile_eq_items(self):
+        """
+        Reconcile a list of equipment losses.
+        """
+
+        # Get the list of all items currently reported in logs
+        od_item = self.od_item
+
+        # Change column names
+        rename_cols = {'source_link_original': 'link', 'country_name': 'country', 'c_eng_name': 'category',
+                       'series_number': 'type', "impact_type": "impact"}
+        od_item.rename(columns=rename_cols, inplace=True)
+
+        # Create a key for the old data
+        od_item['key'] = od_item['country'].str.lower() + od_item['category'].str.lower() + \
+                         od_item['type'].str.lower() + od_item['link'].str.lower() + od_item['impact'].str.lower()
+        od_item['key'] = od_item['key'].str.replace(r'[^\d\w]', '', regex=True)
+
+        # Get rid of duplicates (WebParser.replicate_lines() splits one row into few -
+        # we do not need that for reconciliation)
+        od_item.drop_duplicates(subset="key")
+
+        # Create df for the parsed data (this data is before WebParser.replicate_lines() was applied)
+        item_upd = self.nd
+
+        # Get a list of parsed data column names
+        item_upd_col_names = list(item_upd.columns)
+
+        # Create a key for the new data
+        item_upd['key'] = item_upd['Impacted Country'].str.lower() + item_upd['Equipment Category'].str.lower() + \
+                          item_upd['Equipment Model'].str.lower() + item_upd['Source Link Original'].str.lower() + \
+                          item_upd['Action Type'].str.lower()
+        item_upd['key'] = item_upd['key'].str.replace(r'[^\d\w]', '', regex=True)
+
+        # Reconcile new vs old data
+        item_upd = pd.merge(item_upd, od_item, how='left', on='key')
+        # Drop only those cases where the item log does not exist in the old data
+        item_upd.fillna('New', inplace=True)
+        item_upd = item_upd[item_upd.link == 'New']
+
+        self.reconciled_df = item_upd[item_upd_col_names]
+
+    def update_eq_items(self):
+        """
+        Update a list of equipment losses.
+        """
+
+        # Get the list of all equipment categories currently in use (from countries_orgs)
+        countries = self.countries
+        # Get a list of all equipment categories currently in use (from equipment_categories)
+        od_cat = self.od_cat
+
+        # Create df for the reconciled data (this data is before WebParser.replicate_lines() was applied)
+        item_upd = self.update_data
+
+        # Source foreign key = country_of_origin_id (-> id)
+        item_upd = pd.merge(item_upd, countries, how='left', left_on='Impacted Country', right_on='full_name')
+        item_upd.rename(columns={'id': 'country_id'}, inplace=True)
+
+        # Source category data
+        item_upd = pd.merge(item_upd, od_cat, how='left', left_on='Equipment Category', right_on='c_eng_name')
+        item_upd.rename(columns={'id': 'category_id'}, inplace=True)
+
+        # Get the list of all equipment types currently in use
+        curr_type = self.curr_type
+
+        # Source model data
+        item_upd = pd.merge(item_upd, curr_type, how='left', left_on='Equipment Model', right_on='series_number')
+        item_upd.rename(columns={'id': 'series_number_id'}, inplace=True)
+
+        # Add conflict metadata
+        item_upd['conflict_id'] = 1
+        item_upd['source_name'] = 'Oryx'
+
+        # Feed equipment_categories table w/ unique categories
+        if item_upd.shape[0] > 0:
+            for index, row in item_upd.iterrows():
+                self.engine.execute(
+                    "insert into public.daily_losses_log(conflict_id, impacted_side_id, impact_type, equipment_category, "
+                    "equipment_type, source_name, source_link_original, source_link_final, date) values (" +
+                    str(row.conflict_id) + "," + str(row.country_id) + ",'" + row["Action Type"] + "'," +
+                    str(row.category_id) + "," + str(row.series_number_id) + ",'" + row.source_name + "','" +
+                    row["Source Link Original"] + "','" + row["Source Link Final"] + "','" + row["Event Date"] + "')")
+
+        # Report progress
+        print('######### Added ' + str(item_upd.shape[0]) + ' items to the items')
