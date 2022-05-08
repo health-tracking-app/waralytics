@@ -31,7 +31,7 @@ def generate_report(url_to_parse, path_tsr):
 
     # Recognize dates from images
     counter = 1
-    for link in src_link_pictures[1:5]:
+    for link in src_link_pictures[1:2]:
         # We will make several recognition attempts with different configurations
         # Attempt 1
         print(f"Pic {counter}: attempt 1")
@@ -64,7 +64,7 @@ def generate_report(url_to_parse, path_tsr):
 
     # Recognize text from webpages
     counter = 1
-    for link in src_link_twitter[1:5]:
+    for link in src_link_twitter[1:2]:
         # We will make a several attempts with different sleep timeouts to find a balance between speed
         # and effectiveness.
         # Attempt 1

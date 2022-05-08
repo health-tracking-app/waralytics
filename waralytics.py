@@ -1,5 +1,6 @@
 import ssl
 import requests
+from requests.adapters import HTTPAdapter, Retry
 import requests_html
 import imutils
 import re
@@ -17,7 +18,7 @@ class WebParser:
     Class to take a web page from Oryx blog and parse from it details about the arms losses.
     """
 
-    def __init__(self, web_url: str, js_content: bool = False, sleep = 5):
+    def __init__(self, web_url: str, js_content: bool = False, sleep=5):
         """
         :param web_url: URL from the Oryx website to parse
         :param js_content: Does webpage contain JS dynamically generated content?
@@ -49,9 +50,29 @@ class WebParser:
         else:
             self.parse_webpage()
 
+    def get_html_page(self, web_url, js_content=False, num_retries=5, backoff_factor=0.1, timeout=10):
+
+        # Create a session (for pages with dynamically generated
+        # content we need a special type of session)
+        if js_content:
+            session = requests_html.HTMLSession()
+        else:
+            session = requests.Session()
+
+        # Define connection retries configuration
+        retries = Retry(total=num_retries, backoff_factor=backoff_factor)
+
+        # Mount config to our session
+        session.mount('http://', HTTPAdapter(max_retries=retries))
+
+        # Get html content from a web page
+        html_page = session.get(web_url, timeout=timeout)
+
+        return html_page
+
     def parse_webpage(self):
 
-        self.html_page = requests.get(self.web_url).content
+        self.html_page = self.get_html_page(self.web_url).content
         self.html_soup = BeautifulSoup(self.html_page, "html.parser")
 
     def parse_webpage_with_js(self):
@@ -63,8 +84,8 @@ class WebParser:
         # an exact url for that) or use request-html (which uses chronium under the hood but IMHO
         # is easier to deal with than selenium)
 
-        session = requests_html.HTMLSession()
-        self.html_page = session.get(self.web_url)
+        self.html_page = self.get_html_page(self.web_url, js_content=True)
+
         # We need to wait a bit before page fully renders
         self.html_page.html.render(sleep=self.sleep)
         self.html_soup = BeautifulSoup(self.html_page.html.html, "html.parser")
@@ -152,7 +173,7 @@ class WebParser:
 
             for sib in gen_sib:
                 if sib.name == "h3" and "russia" in sib.text.lower() and "of which" in sib.text.lower():
-                    arm_own = "Russia"
+                    arm_own = "Russian Federation"
                     break
                 elif sib.name == "h3" and "ukraine" in sib.text.lower() and "of which" in sib.text.lower():
                     arm_own = "Ukraine"
@@ -170,7 +191,7 @@ class WebParser:
 
                 for sib in gen_elm:
                     if sib.name == "h3" and "russia" in sib.text.lower() and "of which" in sib.text.lower():
-                        arm_own = "Russia"
+                        arm_own = "Russian Federation"
                         break
                     elif sib.name == "h3" and "ukraine" in sib.text.lower() and "of which" in sib.text.lower():
                         arm_own = "Ukraine"
@@ -213,6 +234,8 @@ class WebParser:
             except StopIteration:
                 pass
 
+            arm_ctg = arm_ctg.title().replace("'", "")
+
             return arm_ctg
 
         def find_action_type(txt):
@@ -237,6 +260,20 @@ class WebParser:
                 action_type = "Damaged"
             return action_type
 
+        def find_arm_type(txt):
+            txt = txt.lower()
+            if "engineer" in txt:
+                arm_tp = "Engineering"
+            elif 'communication' in txt or 'radar' in txt or 'jammer' in txt:
+                arm_tp = 'Communication'
+            elif 'logistic' in txt or 'truck' in txt:
+                arm_tp = 'Logistics'
+            elif 'medical' in txt:
+                arm_tp = 'Medical'
+            else:
+                arm_tp = 'Battle'
+            return arm_tp
+
         def find_number_ids(txt):
             txt = txt.lower()
             # Count a number of numbers in an input string (i.e. number of losses mentioned in one row)
@@ -255,11 +292,13 @@ class WebParser:
         for elm_ul in self.loss_det_filtered:
             arm_owner = find_arm_owner(elm_ul)
             arm_category = find_arm_category(elm_ul)
+            arm_type = find_arm_type(arm_category)
             for elm_li in elm_ul:
                 arm_producer = find_arm_producer(elm_li.img["src"])
-                arm_model = elm_li.text.strip()[elm_li.text.strip().find(" ") + 1: elm_li.text.strip().find(":")]
+                arm_model = elm_li.text.strip()[elm_li.text.strip().find(" ") + 1:
+                                                elm_li.text.strip().find(":")].title().replace("'", "")
                 for elm_a in elm_li.find_all("a"):
-                    arm_id_action = elm_a.text.strip(" ()")  # elm_a.text[elm_a.text.find(",") + 1:].strip(" )")
+                    arm_id_action = elm_a.text.strip(" ()").replace("'", "")   # elm_a.text[elm_a.text.find(",") + 1:].strip(" )")
                     arm_action = find_action_type(arm_id_action)
                     arm_num_id = find_number_ids(arm_id_action)
                     arm_photo_url_original = elm_a["href"].strip()
@@ -272,43 +311,47 @@ class WebParser:
                     else:
                         # Link leads to a page that contains an image - we need to get picture's url itself first
                         # and later recognize date from it
-                        redirect_web_page = requests.get(arm_photo_url_original).content
-                        redirect_bs = BeautifulSoup(redirect_web_page, "html.parser")
-                        # print(arm_photo_url_original)
-                        arm_photo_url_final = redirect_bs.find(id="main-image")['src'].strip()
-                    elm_list_loss = [arm_category, arm_model, arm_id_action, arm_action, arm_num_id,
+                        try:
+                            redirect_web_page = self.get_html_page(arm_photo_url_original).content
+                            redirect_bs = BeautifulSoup(redirect_web_page, "html.parser")
+                            # print(arm_photo_url_original)
+                            arm_photo_url_final = redirect_bs.find(id="main-image")['src'].strip()
+                        except Exception:
+                            arm_photo_url_final = "Error on connecting to original url or parsing webpage"
+                    elm_list_loss = [arm_type, arm_category, arm_model, arm_id_action, arm_action, arm_num_id,
                                      arm_photo_url_original, arm_photo_url_final, arm_producer, arm_owner]
                     list_loss.append(elm_list_loss)
 
-        df_columns = ["Equipment Category", "Equipment Type", "Action ID & Types", "Action Type", "Number of IDs",
-                      "Source Link Original", "Source Link Final", "Equipment Producer", "Impacted Country"]
+        df_columns = ["Equipment Type", "Equipment Category", "Equipment Model", "Action ID & Types", "Action Type",
+                      "Number of IDs", "Source Link Original", "Source Link Final", "Equipment Producer",
+                      "Impacted Country"]
 
         self.df_loss_raw = pd.DataFrame(data=list_loss, columns=df_columns)
 
         # Get rid of duplicate lines caused by error in the html structure of source web page
         # TODO: One-time exception - see no way to standardize
         self.df_loss_raw.drop(self.df_loss_raw[(self.df_loss_raw["Equipment Category"] == "Towed Artillery") &
-                                               (self.df_loss_raw["Equipment Type"] == "152mm 2A65 Msta-B howitzer") &
-                                               (self.df_loss_raw["Action ID & Types"] == "11,") &
+                                               (self.df_loss_raw["Equipment Model"].str.lower() == "152mm 2a65 msta-b howitzer") &
+                                               # (self.df_loss_raw["Action ID & Types"] == "13,") &
                                                (self.df_loss_raw["Source Link Original"] == "https://postimg.cc/q6CYJkkd") &
-                                               (self.df_loss_raw["Impacted Country"] == "Russia")]
+                                               (self.df_loss_raw["Impacted Country"] == "Russian Federation")]
                               .index, inplace=True)
-        self.df_loss_raw.drop(self.df_loss_raw[(self.df_loss_raw["Equipment Category"] == "Towed Artillery") &
-                                               (self.df_loss_raw["Equipment Type"] == "152mm 2A65 Msta-B howitzer") &
-                                               (self.df_loss_raw["Action ID & Types"] == "") &
-                                               (self.df_loss_raw["Source Link Original"] == "https://postimg.cc/q6CYJkkd") &
-                                               (self.df_loss_raw["Impacted Country"] == "Russia")]
-                              .index, inplace=True)
+        # self.df_loss_raw.drop(self.df_loss_raw[(self.df_loss_raw["Equipment Category"] == "Towed Artillery") &
+        #                                        (self.df_loss_raw["Equipment Model"].str.lower() == "152mm 2a65 msta-b howitzer") &
+        #                                        (self.df_loss_raw["Action ID & Types"] == "") &
+        #                                        (self.df_loss_raw["Source Link Original"] == "https://postimg.cc/q6CYJkkd") &
+        #                                        (self.df_loss_raw["Impacted Country"] == "Russian Federation")]
+        #                       .index, inplace=True)
         row_to_change = self.df_loss_raw[(self.df_loss_raw["Equipment Category"] == "Towed Artillery") &
-                                         (self.df_loss_raw["Equipment Type"] == "152mm 2A65 Msta-B howitzer") &
-                                         (self.df_loss_raw["Action ID & Types"] == "damaged by Bayraktar TB2") &
+                                         (self.df_loss_raw["Equipment Model"].str.lower() == "152mm 2a65 msta-b howitzer") &
+                                         (self.df_loss_raw["Action ID & Types"].str.lower() == "damaged by bayraktar tb2") &
                                          (self.df_loss_raw["Source Link Original"] == "https://i.postimg.cc/yYx8J43v/Screenshot-8073.png") &
-                                         (self.df_loss_raw["Impacted Country"] == "Russia")].index
+                                         (self.df_loss_raw["Impacted Country"] == "Russian Federation")].index
         if not row_to_change.empty:
             # Attempt to change only for Russia to avoid index out of range
-            self.df_loss_raw.at[row_to_change[0], "Action ID & Types"] = "11, damaged by Bayraktar TB2"
+            self.df_loss_raw.at[row_to_change[0], "Action ID & Types"] = "13, damaged by Bayraktar TB2"
 
-        self.df_loss_raw = self.df_loss_raw#[1:10]
+        self.df_loss_raw = self.df_loss_raw
 
     def replicate_lines(self):
         """
@@ -334,7 +377,7 @@ class WebParser:
 
         # Combine input data frame with replica data frame
         self.df_loss_final = pd.concat([self.df_loss_raw, df_replicas], ignore_index=True)
-        self.df_loss_final.sort_values(by=["Equipment Category", "Equipment Type", "Action ID & Types",
+        self.df_loss_final.sort_values(by=["Equipment Category", "Equipment Model", "Action ID & Types",
                                            "Source Link Original"], inplace=True)
         self.df_loss_final.reset_index(inplace=True, drop=True)
 
