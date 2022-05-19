@@ -1,10 +1,12 @@
+import os
 import pandas as pd
 
 import waralytics
 import config
 
 
-def generate_report(url_to_parse, path_tsr):
+def generate_report(url_to_parse, path_tsr, recon=True, db_username=None, db_password=None,
+                    db_host=None, db_port=None, db_name=None):
 
     # Initialize web parser
     web_parser = waralytics.WebParser(url_to_parse)
@@ -18,8 +20,26 @@ def generate_report(url_to_parse, path_tsr):
     # Extract details about equipment losses from the webpage
     web_parser.extract_details()
 
+    # If we are running reconciliation, extract old info from the db and update there ref data tables
+    if recon:
+        # Check if all the required arguments are present
+        check_recon_args = [db_username, db_password, db_host, db_port, db_name]
+        if not all(check_recon_args):
+            return "Please provide db_username, db_password, db_host, db_port, db_name to connect to a database"
+        # Initialize data reconciliation
+        data_recon = waralytics.DataReconciliation(db_username, db_password, db_host, db_port, db_name)
+        # Reconcile new (parsed from the webpage) and old (extracted from the database) data
+        # Update ref data table in the database
+        data_recon.update_db_step_1(web_parser.df_loss_raw)
+
+    # Define df we will be working with
+    if recon:
+        df_work = data_recon.reconciled_df
+    else:
+        df_work = web_parser.df_loss_raw
+
     # Get a list of unique source links
-    src_links = list(set(list(web_parser.df_loss_raw["Source Link Final"])))
+    src_links = list(set(list(df_work["Source Link Final"])))
 
     # Split links between pictures' bank (to parse date from the image) and twitter
     # (to parse date from the webpage)
@@ -91,19 +111,44 @@ def generate_report(url_to_parse, path_tsr):
     # Convert list to a data frame
     rec_dates_df = pd.DataFrame(data=rec_dates, columns=["Source Link Final", "Recognized Text", "Event Date"])
 
-    # Merge main data frame with the ones with event dates
-    web_parser.df_loss_raw = web_parser.df_loss_raw.merge(rec_dates_df, how='outer', on='Source Link Final')
+    # Merge main data frame with the one with event dates
+    df_work = df_work.merge(rec_dates_df, how='outer', on='Source Link Final')
 
     # Replicate rows, which contain info about several hit objects
-    web_parser.replicate_lines()
+    df_final = web_parser.replicate_lines(df_work)
 
-    return web_parser.df_loss_final
+    # Update db
+    if recon:
+        data_recon.update_db_step_2(df_final)
 
+    return df_final
+
+
+# GENERATE REPORTS W/O DOING RECONCILIATION
 
 # Generate reports
-war_loss_ua = generate_report(config.url_ua_loss, config.path_tsr)
-war_loss_ru = generate_report(config.url_ru_loss, config.path_tsr)
+war_loss_ua = generate_report(config.url_ua_loss, config.path_tsr, recon=False)
+war_loss_ru = generate_report(config.url_ru_loss, config.path_tsr, recon=False)
 
 # Save reports
 war_loss_ua.to_csv("war_loss_ua.csv", sep=";")
 war_loss_ru.to_csv("war_loss_ru.csv", sep=";")
+
+# GENERATE REPORTS W/ DOING RECONCILIATION AND UPDATING TABLES ON DB
+
+# Import parameters required to connect to a database
+# db_username = os.environ["DB_USERNAME"]
+# db_password = os.environ["DB_PASSWORD"]
+# db_host = os.environ["DB_HOST"]
+# db_port = os.environ["DB_PORT"]
+# db_name = os.environ["DB_NAME"]
+#
+# # Generate reports and update logs table of the database
+# war_loss_ua = generate_report(config.url_ua_loss, config.path_tsr, db_username=db_username, db_password=db_password,
+#                               db_host=db_host, db_port=db_port, db_name=db_name)
+# war_loss_ru = generate_report(config.url_ru_loss, config.path_tsr, db_username=db_username, db_password=db_password,
+#                               db_host=db_host, db_port=db_port, db_name=db_name)
+#
+# # Save reports
+# war_loss_ua.to_csv("war_loss_ua.csv", sep=";")
+# war_loss_ru.to_csv("war_loss_ru.csv", sep=";")

@@ -42,8 +42,6 @@ class WebParser:
         self.loss_det_filtered = None
         # Data frame with losses details (before expanding multiple losses rows into several lines)
         self.df_loss_raw = None
-        # Data frame with losses details (one loss - one line)
-        self.df_loss_final = None
 
         # On class initiation parse a web page
         if self.js_content:
@@ -159,6 +157,8 @@ class WebParser:
                 arm_prd = "United States"
             elif "turkey" in txt:
                 arm_prd = "Turkey"
+            elif "germany" in txt:
+                arm_prd = "Germany"
             return arm_prd
 
         def find_arm_owner(html_ul):
@@ -354,7 +354,7 @@ class WebParser:
 
         self.df_loss_raw = self.df_loss_raw
 
-    def replicate_lines(self):
+    def replicate_lines(self, df):
         """
         Some photos on the webpage include several equipment items.
         To count losses properly we need to split such entries, so
@@ -366,21 +366,23 @@ class WebParser:
 
         # Create an empty data frame with the same structure as df
         # TODO: Probably not effective but anyways takes fractions of second
-        df_replicas = self.df_loss_raw[0:0]
+        df_replicas = df[0:0]
 
         # Loop through the input data frame and create a data frame with replicated rows
         # TODO: Looks not nice but will do for now
-        for i in self.df_loss_raw["Number of IDs"]:
+        for i in df["Number of IDs"]:
             if i != 1:
-                df_replicas = pd.concat([df_replicas, pd.concat([self.df_loss_raw.iloc[[counter_idx]]] * (i - 1),
+                df_replicas = pd.concat([df_replicas, pd.concat([df.iloc[[counter_idx]]] * (i - 1),
                                                                 ignore_index=True)], ignore_index=True)
             counter_idx += 1
 
         # Combine input data frame with replica data frame
-        self.df_loss_final = pd.concat([self.df_loss_raw, df_replicas], ignore_index=True)
-        self.df_loss_final.sort_values(by=["Equipment Category", "Equipment Model", "Action ID & Types",
-                                           "Source Link Original"], inplace=True)
-        self.df_loss_final.reset_index(inplace=True, drop=True)
+        df_final = pd.concat([df, df_replicas], ignore_index=True)
+        df_final.sort_values(by=["Equipment Category", "Equipment Model", "Action ID & Types",
+                                 "Source Link Original"], inplace=True)
+        df_final.reset_index(inplace=True, drop=True)
+
+        return df_final
 
     def extract_date_txt_from_twit(self):
         date_txt = ""
