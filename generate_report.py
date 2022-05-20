@@ -1,10 +1,25 @@
 import os
+from time import time
 import pandas as pd
 
 import waralytics
 import config
 
 
+def timer_func(func):
+    """
+    Decorator that shows execution time of a function.
+    """
+    def wrap_func(*args, **kwargs):
+        t1 = time()
+        result = func(*args, **kwargs)
+        t2 = time()
+        print(f'Function {func.__name__!r} executed in {(t2-t1):.4f}s')
+        return result
+    return wrap_func
+
+
+@timer_func
 def generate_report(url_to_parse, path_tsr, recon=True, db_username=None, db_password=None,
                     db_host=None, db_port=None, db_name=None):
 
