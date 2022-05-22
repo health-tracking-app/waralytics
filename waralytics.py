@@ -536,6 +536,41 @@ class MetadataParser:
 
         # TODO: get an image object from a link
 
+        # TODO - Update (1):
+        #  - Image needs to be saved locally in order to retrieve metadata
+        #  - Python libraries requests, urllib, wget while downloading image overwrite its last modified date
+        #  - To preserve it we can use wget command-line utility
+        #  - Usage:
+        #     - import os
+        #     - url = r"https://i.postimg.cc/DfBZsDkg/558.png"
+        #     - os.system(fr'"C:\Program Files (x86)\GnuWin32\bin\wget.exe" {url}')
+
+        # TODO - Update (2):
+        #  - Looks like images we need do not have its own metadata
+        #  - Last Modified entry reflects date when it was uploaded to the website
+        #  - We do not need to download an image to retrieve this information
+        #  - wget utility can do the trick:
+        #     - import os
+        #     - url = r"https://i.postimg.cc/DfBZsDkg/558.png"
+        #     - os.system(fr'"C:\Program Files (x86)\GnuWin32\bin\wget.exe" -S -q --spider -o log.txt {url}')
+        #     - serv_resp = os.popen(fr'"C:\Program Files (x86)\GnuWin32\bin\wget.exe" -S -q --spider -o - {url}').read()
+        #   - 3rd line logs server output to a file
+        #   - 4th line redirects it to a stdout and saves it to a variable (preferred option)
+        #   - Options:
+        #      - -S: get server response
+        #      - -q: do not print standard command output to console
+        #      - --spider: do not download anything
+        #      - -o: log messages to a file or standard output if "-" is provided instead of file name
+
+        # TODO: - Update (3):
+        #  - The same results can be achieved using requests library:
+        #     - import requests
+        #     - from dateutil.parser import parse as parsedate
+        #     - url = r"https://i.postimg.cc/DfBZsDkg/558.png"
+        #     - r = requests.head(url)
+        #     - date_txt = r.headers['last-modified']
+        #     - date_dt = parsedate(date_txt, ignoretz=True)
+
         img = link
 
         try:
