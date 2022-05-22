@@ -20,7 +20,7 @@ def timer_func(func):
 
 
 @timer_func
-def generate_report(url_to_parse, path_tsr, recon=True, db_username=None, db_password=None,
+def generate_report(url_to_parse, path_tsr, path_exif, recon=True, db_username=None, db_password=None,
                     db_host=None, db_port=None, db_name=None):
 
     # Initialize web parser
@@ -31,6 +31,9 @@ def generate_report(url_to_parse, path_tsr, recon=True, db_username=None, db_pas
 
     # Initialize date parser
     date_parser = waralytics.DateParser()
+
+    # Initialize metadata parser
+    meta_parser = waralytics.MetadataParser(path_exif)
 
     # Extract details about equipment losses from the webpage
     web_parser.extract_details()
@@ -93,6 +96,26 @@ def generate_report(url_to_parse, path_tsr, recon=True, db_username=None, db_pas
             print(f"Pic {counter}: attempt 5")
             img_txt = tsr.parse_txt_from_img(link, adjust_img=True, invert_img=True)
             date_txt = date_parser.parse_date_from_txt(img_txt, "pic")
+        if not date_txt:
+            # Attempt 6 (metadata)
+            print(f"Pic (meta) {counter}: attempt 6")
+            # Get all the metadata entries with dates
+            meta_dates_txt = meta_parser.get_metadata(link)
+            if meta_dates_txt:
+                # Convert strings to dates (dates must pass check_date() conditions)
+                meta_dates_dt = [date_parser.parse_date_from_txt(i, "meta") for i in meta_dates_txt]
+                # Get rid of None and empty strings
+                meta_dates = [i for i in meta_dates_dt if i is not None and i != ""]
+                if meta_dates:
+                    # Find the earliest date from the list
+                    img_txt = "Metadata"
+                    date_txt = min(meta_dates)
+                else:
+                    img_txt = "Metadata"
+                    date_txt = None
+            else:
+                img_txt = "Metadata"
+                date_txt = None
         elm_rec_txt = [link, img_txt, date_txt]
         rec_dates.append(elm_rec_txt)
         counter += 1
@@ -142,8 +165,8 @@ def generate_report(url_to_parse, path_tsr, recon=True, db_username=None, db_pas
 # GENERATE REPORTS W/O DOING RECONCILIATION
 
 # Generate reports
-war_loss_ua = generate_report(config.url_ua_loss, config.path_tsr, recon=False)
-war_loss_ru = generate_report(config.url_ru_loss, config.path_tsr, recon=False)
+war_loss_ua = generate_report(config.url_ua_loss, config.path_tsr, config.path_exif, recon=False)
+war_loss_ru = generate_report(config.url_ru_loss, config.path_tsr, config.path_exif, recon=False)
 
 # Save reports
 war_loss_ua.to_csv("war_loss_ua.csv", sep=";")
@@ -159,10 +182,10 @@ war_loss_ru.to_csv("war_loss_ru.csv", sep=";")
 # db_name = os.environ["DB_NAME"]
 #
 # # Generate reports and update logs table of the database
-# war_loss_ua = generate_report(config.url_ua_loss, config.path_tsr, db_username=db_username, db_password=db_password,
-#                               db_host=db_host, db_port=db_port, db_name=db_name)
-# war_loss_ru = generate_report(config.url_ru_loss, config.path_tsr, db_username=db_username, db_password=db_password,
-#                               db_host=db_host, db_port=db_port, db_name=db_name)
+# war_loss_ua = generate_report(config.url_ua_loss, config.path_tsr, config.path_exif, db_username=db_username,
+#                               db_password=db_password, db_host=db_host, db_port=db_port, db_name=db_name)
+# war_loss_ru = generate_report(config.url_ru_loss, config.path_tsr, config.path_exif, db_username=db_username,
+#                               db_password=db_password, db_host=db_host, db_port=db_port, db_name=db_name)
 #
 # # Save reports
 # war_loss_ua.to_csv("war_loss_ua.csv", sep=";")

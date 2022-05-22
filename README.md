@@ -15,19 +15,24 @@ pip install -r requirements.txt
 ## External dependencies
 
 ### ExifTool
-Tool for reading metadata from pictures.
-Works with PyExifTool Python library.
+Tool for reading metadata from pictures.  
+Works with PyExifTool Python library.  
 https://exiftool.org/install.html
 
-### Chrome Driver
-Tool for loading web page with dynamically generated content.
-Works with requests-html Python library. Usually, library handles driver download itself.
+### wget
+Tool for downloading data from the web.  
+Unlike other tools, preserves the date file was uploaded to the web.  
+https://eternallybored.org/misc/wget/
+
+### Chrome driver
+Tool for loading web page with dynamically generated content.  
+Works with requests-html Python library. Usually, library handles driver download itself.  
 https://www.selenium.dev/documentation/webdriver/getting_started/install_drivers/
 
 ### Tesseract
-Tool for recognizing text from images.
-Works with pytesseract Python library.
-Official repo (v3): https://tesseract-ocr.github.io/tessdoc/Downloads.html
+Tool for recognizing text from images.  
+Works with pytesseract Python library.  
+Official repo (v3): https://tesseract-ocr.github.io/tessdoc/Downloads.html  
 UB Mannheim (v3,4,5): https://github.com/UB-Mannheim/tesseract/wiki
 
 # Package usage

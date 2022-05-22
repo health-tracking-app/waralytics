@@ -6,12 +6,13 @@ from sqlalchemy import create_engine
 import imutils
 import re
 from datetime import datetime
-import dateutil
+from dateutil import parser
 from bs4 import BeautifulSoup
 import pandas as pd
 import numpy as np
 import cv2
 from pytesseract import pytesseract
+import exiftool
 
 
 class WebParser:
@@ -513,6 +514,42 @@ class ImageRecognizer:
         return img_txt
 
 
+class MetadataParser:
+    """
+    Class to extract metadata from a picture (to get a date when it was taken).
+    """
+
+    def __init__(self, path_exif: str):
+        """
+        :param path_exif: Path to ExifTool
+        """
+
+        self.path_exif = path_exif
+
+        # Avoid website certificate validation errors
+        ssl._create_default_https_context = ssl._create_unverified_context
+
+        # Point exiftool to the ExifTool tool
+        exiftool.exiftool.ExifTool(executable=self.path_exif)
+
+    def get_metadata(self, link):
+
+        # TODO: get an image object from a link
+
+        img = link
+
+        try:
+            # Get metadata
+            et = exiftool.ExifToolHelper()
+            metadata = et.get_metadata(img)
+            # Get all the entries with dates
+            meta_dates = [value for (key, value) in metadata[0].items() if "date" in key.lower()]
+        except Exception:
+            meta_dates = []
+
+        return meta_dates
+
+
 class DateParser:
     """
     Class to convert strings into dates.
@@ -550,13 +587,16 @@ class DateParser:
             Function added for convenience, so not to repeat try-except construct all the time.
             """
             try:
-                ret_date = dateutil.parser.parse(txt, dayfirst=dayfirst, yearfirst=yearfirst)
+                ret_date = parser.parse(txt, ignoretz=True, dayfirst=dayfirst, yearfirst=yearfirst)
             except Exception:
                 ret_date = None
             return ret_date
 
         # Date parser doesn't recognize "_", so replacing with "-"
         date_txt = date_txt.replace("_", "-")
+
+        # Date parser recognizes ":" as a time separator, so replacing with "-"
+        date_txt = date_txt.replace(":", "-")
 
         # Parse unknown date format
         converted_dt = parse_date(date_txt, dayfirst=True, yearfirst=False)
@@ -582,7 +622,7 @@ class DateParser:
     def parse_date_from_txt(self, input_txt, src):
 
         # Check src argument
-        if src not in ["pic", "twit"]:
+        if src not in ["pic", "twit", "meta"]:
             src = "pic"
 
         # Test cases:
@@ -609,16 +649,22 @@ class DateParser:
             # DD-MM-YYYY / DD-MM-YY ==> (\d{1,2}\W\d{1,2}\W(\d{4}|\d{2}))
             # YY-MM-DD / YYYY-MM-DD ==> ((\d{2}|\d{4})\W\d{1,2}\W\d{1,2})
             pattern_txt = r"(\d{1,2}\W\d{1,2}\W(\d{4}|\d{2}))|((\d{2}|\d{4})\W\d{1,2}\W\d{1,2})"
-        else:
+        elif src == "twit":
             pattern_txt = r"[a-zA-Z]{3} \d{1,2}, \d{4}"
 
-        p = re.compile(pattern_txt)
-        date_txt_match = p.search(input_txt)
-        if date_txt_match is None:
-            date_dt = None
-        else:
-            date_txt = date_txt_match.group()
+        if src == "meta":
+            # For metadata we can leave things as is
+            date_txt = input_txt
             date_dt = self.convert_txt_to_date(date_txt)
+        else:
+            # For picture and tweets we need to parse date from text
+            p = re.compile(pattern_txt)
+            date_txt_match = p.search(input_txt)
+            if date_txt_match is None:
+                date_dt = None
+            else:
+                date_txt = date_txt_match.group()
+                date_dt = self.convert_txt_to_date(date_txt)
 
         return date_dt
 
