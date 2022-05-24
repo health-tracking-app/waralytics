@@ -20,7 +20,7 @@ def timer_func(func):
 
 
 @timer_func
-def generate_report(url_to_parse, path_tsr, path_exif, recon=True, db_username=None, db_password=None,
+def generate_report(url_to_parse, path_tsr, recon=True, db_username=None, db_password=None,
                     db_host=None, db_port=None, db_name=None):
 
     # Initialize web parser
@@ -31,9 +31,6 @@ def generate_report(url_to_parse, path_tsr, path_exif, recon=True, db_username=N
 
     # Initialize date parser
     date_parser = waralytics.DateParser()
-
-    # Initialize metadata parser
-    meta_parser = waralytics.MetadataParser(path_exif)
 
     # Extract details about equipment losses from the webpage
     web_parser.extract_details()
@@ -69,80 +66,66 @@ def generate_report(url_to_parse, path_tsr, path_exif, recon=True, db_username=N
 
     # Recognize dates from images
     counter = 1
-    for link in src_link_pictures[1:2]:
+    for link in src_link_pictures[1:10]:
         # We will make several recognition attempts with different configurations
         # Attempt 1
-        print(f"Pic {counter}: attempt 1")
+        print(f"Pic {counter}: attempt 1 : [{link}]")
         img_txt = tsr.parse_txt_from_img(link, black_white=True)
-        date_txt = date_parser.parse_date_from_txt(img_txt, "pic")
-        if not date_txt:
+        date_dt = date_parser.parse_date_from_txt(img_txt, "pic")
+        if not date_dt:
             # Attempt 2
-            print(f"Pic {counter}: attempt 2")
+            print(f"Pic {counter}: attempt 2 : [{link}]")
             # In case date overlay is in white color
             img_txt = tsr.parse_txt_from_img(link, invert_img=True, black_white=True)
-            date_txt = date_parser.parse_date_from_txt(img_txt, "pic")
-        if not date_txt:
+            date_dt = date_parser.parse_date_from_txt(img_txt, "pic")
+        if not date_dt:
             # Attempt 3
-            print(f"Pic {counter}: attempt 3")
+            print(f"Pic {counter}: attempt 3 : [{link}]")
             img_txt = tsr.parse_txt_from_img(link)
-            date_txt = date_parser.parse_date_from_txt(img_txt, "pic")
-        if not date_txt:
+            date_dt = date_parser.parse_date_from_txt(img_txt, "pic")
+        if not date_dt:
             # Attempt 4
-            print(f"Pic {counter}: attempt 4")
+            print(f"Pic {counter}: attempt 4 : [{link}]")
             img_txt = tsr.parse_txt_from_img(link, adjust_img=True)
-            date_txt = date_parser.parse_date_from_txt(img_txt, "pic")
-        if not date_txt:
+            date_dt = date_parser.parse_date_from_txt(img_txt, "pic")
+        if not date_dt:
             # Attempt 5
-            print(f"Pic {counter}: attempt 5")
+            print(f"Pic {counter}: attempt 5 : [{link}]")
             img_txt = tsr.parse_txt_from_img(link, adjust_img=True, invert_img=True)
-            date_txt = date_parser.parse_date_from_txt(img_txt, "pic")
-        if not date_txt:
+            date_dt = date_parser.parse_date_from_txt(img_txt, "pic")
+        if not date_dt:
             # Attempt 6 (metadata)
-            print(f"Pic (meta) {counter}: attempt 6")
-            # Get all the metadata entries with dates
-            meta_dates_txt = meta_parser.get_metadata(link)
-            if meta_dates_txt:
-                # Convert strings to dates (dates must pass check_date() conditions)
-                meta_dates_dt = [date_parser.parse_date_from_txt(i, "meta") for i in meta_dates_txt]
-                # Get rid of None and empty strings
-                meta_dates = [i for i in meta_dates_dt if i is not None and i != ""]
-                if meta_dates:
-                    # Find the earliest date from the list
-                    img_txt = "Metadata"
-                    date_txt = min(meta_dates)
-                else:
-                    img_txt = "Metadata"
-                    date_txt = None
-            else:
-                img_txt = "Metadata"
-                date_txt = None
-        elm_rec_txt = [link, img_txt, date_txt]
+            print(f"Pic (meta) {counter}: attempt 6 : [{link}]")
+            svr_resp = web_parser.get_html_page(link, server_response=True)
+            img_txt = svr_resp.headers['last-modified']
+            date_dt = date_parser.convert_txt_to_date(img_txt)
+        elm_rec_txt = [link, img_txt, date_dt]
         rec_dates.append(elm_rec_txt)
         counter += 1
 
     # Recognize text from webpages
     counter = 1
-    for link in src_link_twitter[1:2]:
+    for link in src_link_twitter[1:10]:
         # We will make a several attempts with different sleep timeouts to find a balance between speed
         # and effectiveness.
         # Attempt 1
-        print(f"Tweet {counter}: attempt 1")
+        print(f"Tweet {counter}: attempt 1 : [{link}]")
         twit_parser = waralytics.WebParser(link, js_content=True, sleep=3)
         twit_txt = twit_parser.extract_date_txt_from_twit()
-        date_txt = date_parser.parse_date_from_txt(twit_txt, "twit")
-        if not date_txt:
+        date_dt = date_parser.parse_date_from_txt(twit_txt, "twit")
+        if not date_dt:
             # Attempt 2
-            print(f"Tweet {counter}: attempt 2")
+            print(f"Tweet {counter}: attempt 2 : [{link}]")
             twit_parser = waralytics.WebParser(link, js_content=True, sleep=5)
             twit_txt = twit_parser.extract_date_txt_from_twit()
-            date_txt = date_parser.parse_date_from_txt(twit_txt, "twit")
-        if not date_txt:
+            date_dt = date_parser.parse_date_from_txt(twit_txt, "twit")
+        if not date_dt:
             # Attempt 3
-            print(f"Tweet {counter}: attempt 3")
+            print(f"Tweet {counter}: attempt 3 : [{link}]")
             twit_parser = waralytics.WebParser(link, js_content=True, sleep=10)
             twit_txt = twit_parser.extract_date_txt_from_twit()
-            date_txt = date_parser.parse_date_from_txt(twit_txt, "twit")
-        elm_rec_txt = [link, twit_txt, date_txt]
+            date_dt = date_parser.parse_date_from_txt(twit_txt, "twit")
+        elm_rec_txt = [link, twit_txt, date_dt]
         rec_dates.append(elm_rec_txt)
         counter += 1
 
@@ -165,8 +148,8 @@ def generate_report(url_to_parse, path_tsr, path_exif, recon=True, db_username=N
 # GENERATE REPORTS W/O DOING RECONCILIATION
 
 # Generate reports
-war_loss_ua = generate_report(config.url_ua_loss, config.path_tsr, config.path_exif, recon=False)
-war_loss_ru = generate_report(config.url_ru_loss, config.path_tsr, config.path_exif, recon=False)
+war_loss_ua = generate_report(config.url_ua_loss, config.path_tsr, recon=False)
+war_loss_ru = generate_report(config.url_ru_loss, config.path_tsr, recon=False)
 
 # Save reports
 war_loss_ua.to_csv("war_loss_ua.csv", sep=";")
@@ -182,9 +165,9 @@ war_loss_ru.to_csv("war_loss_ru.csv", sep=";")
 # db_name = os.environ["DB_NAME"]
 #
 # # Generate reports and update logs table of the database
-# war_loss_ua = generate_report(config.url_ua_loss, config.path_tsr, config.path_exif, db_username=db_username,
+# war_loss_ua = generate_report(config.url_ua_loss, config.path_tsr, db_username=db_username,
 #                               db_password=db_password, db_host=db_host, db_port=db_port, db_name=db_name)
-# war_loss_ru = generate_report(config.url_ru_loss, config.path_tsr, config.path_exif, db_username=db_username,
+# war_loss_ru = generate_report(config.url_ru_loss, config.path_tsr, db_username=db_username,
 #                               db_password=db_password, db_host=db_host, db_port=db_port, db_name=db_name)
 #
 # # Save reports

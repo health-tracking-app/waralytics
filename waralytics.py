@@ -12,7 +12,6 @@ import pandas as pd
 import numpy as np
 import cv2
 from pytesseract import pytesseract
-import exiftool
 
 
 class WebParser:
@@ -50,7 +49,8 @@ class WebParser:
         else:
             self.parse_webpage()
 
-    def get_html_page(self, web_url, js_content=False, num_retries=5, backoff_factor=0.1, timeout=10):
+    def get_html_page(self, web_url, js_content=False, server_response=False, num_retries=5, backoff_factor=0.1,
+                      timeout=10):
 
         # Create a session (for pages with dynamically generated
         # content we need a special type of session)
@@ -65,10 +65,14 @@ class WebParser:
         # Mount config to our session
         session.mount('http://', HTTPAdapter(max_retries=retries))
 
-        # Get html content from a web page
-        html_page = session.get(web_url, timeout=timeout)
+        if server_response:
+            # Get only server response for a web page
+            response = session.head(web_url, timeout=timeout)
+        else:
+            # Get full html content of a web page
+            response = session.get(web_url, timeout=timeout)
 
-        return html_page
+        return response
 
     def parse_webpage(self):
 
@@ -514,77 +518,6 @@ class ImageRecognizer:
         return img_txt
 
 
-class MetadataParser:
-    """
-    Class to extract metadata from a picture (to get a date when it was taken).
-    """
-
-    def __init__(self, path_exif: str):
-        """
-        :param path_exif: Path to ExifTool
-        """
-
-        self.path_exif = path_exif
-
-        # Avoid website certificate validation errors
-        ssl._create_default_https_context = ssl._create_unverified_context
-
-        # Point exiftool to the ExifTool tool
-        exiftool.exiftool.ExifTool(executable=self.path_exif)
-
-    def get_metadata(self, link):
-
-        # TODO: get an image object from a link
-
-        # TODO - Update (1):
-        #  - Image needs to be saved locally in order to retrieve metadata
-        #  - Python libraries requests, urllib, wget while downloading image overwrite its last modified date
-        #  - To preserve it we can use wget command-line utility
-        #  - Usage:
-        #     - import os
-        #     - url = r"https://i.postimg.cc/DfBZsDkg/558.png"
-        #     - os.system(fr'"C:\Program Files (x86)\GnuWin32\bin\wget.exe" {url}')
-
-        # TODO - Update (2):
-        #  - Looks like images we need do not have its own metadata
-        #  - Last Modified entry reflects date when it was uploaded to the website
-        #  - We do not need to download an image to retrieve this information
-        #  - wget utility can do the trick:
-        #     - import os
-        #     - url = r"https://i.postimg.cc/DfBZsDkg/558.png"
-        #     - os.system(fr'"C:\Program Files (x86)\GnuWin32\bin\wget.exe" -S -q --spider -o log.txt {url}')
-        #     - serv_resp = os.popen(fr'"C:\Program Files (x86)\GnuWin32\bin\wget.exe" -S -q --spider -o - {url}').read()
-        #   - 3rd line logs server output to a file
-        #   - 4th line redirects it to a stdout and saves it to a variable (preferred option)
-        #   - Options:
-        #      - -S: get server response
-        #      - -q: do not print standard command output to console
-        #      - --spider: do not download anything
-        #      - -o: log messages to a file or standard output if "-" is provided instead of file name
-
-        # TODO: - Update (3):
-        #  - The same results can be achieved using requests library:
-        #     - import requests
-        #     - from dateutil.parser import parse as parsedate
-        #     - url = r"https://i.postimg.cc/DfBZsDkg/558.png"
-        #     - r = requests.head(url)
-        #     - date_txt = r.headers['last-modified']
-        #     - date_dt = parsedate(date_txt, ignoretz=True)
-
-        img = link
-
-        try:
-            # Get metadata
-            et = exiftool.ExifToolHelper()
-            metadata = et.get_metadata(img)
-            # Get all the entries with dates
-            meta_dates = [value for (key, value) in metadata[0].items() if "date" in key.lower()]
-        except Exception:
-            meta_dates = []
-
-        return meta_dates
-
-
 class DateParser:
     """
     Class to convert strings into dates.
@@ -596,8 +529,8 @@ class DateParser:
             check = False
         else:
             # Dates must be in range between 24.02.2022 (start of war) and today
-            date_war_start = datetime(2022, 2, 24, 0, 0)
-            date_today = datetime.now()
+            date_war_start = datetime(2022, 2, 24).date()
+            date_today = datetime.now().date()
             check = date_war_start <= date_dt <= date_today
         return check
 
@@ -622,16 +555,13 @@ class DateParser:
             Function added for convenience, so not to repeat try-except construct all the time.
             """
             try:
-                ret_date = parser.parse(txt, ignoretz=True, dayfirst=dayfirst, yearfirst=yearfirst)
+                ret_date = parser.parse(txt, ignoretz=True, dayfirst=dayfirst, yearfirst=yearfirst).date()
             except Exception:
                 ret_date = None
             return ret_date
 
         # Date parser doesn't recognize "_", so replacing with "-"
         date_txt = date_txt.replace("_", "-")
-
-        # Date parser recognizes ":" as a time separator, so replacing with "-"
-        date_txt = date_txt.replace(":", "-")
 
         # Parse unknown date format
         converted_dt = parse_date(date_txt, dayfirst=True, yearfirst=False)
@@ -657,7 +587,7 @@ class DateParser:
     def parse_date_from_txt(self, input_txt, src):
 
         # Check src argument
-        if src not in ["pic", "twit", "meta"]:
+        if src not in ["pic", "twit"]:
             src = "pic"
 
         # Test cases:
@@ -687,19 +617,13 @@ class DateParser:
         elif src == "twit":
             pattern_txt = r"[a-zA-Z]{3} \d{1,2}, \d{4}"
 
-        if src == "meta":
-            # For metadata we can leave things as is
-            date_txt = input_txt
-            date_dt = self.convert_txt_to_date(date_txt)
+        p = re.compile(pattern_txt)
+        date_txt_match = p.search(input_txt)
+        if date_txt_match is None:
+            date_dt = None
         else:
-            # For picture and tweets we need to parse date from text
-            p = re.compile(pattern_txt)
-            date_txt_match = p.search(input_txt)
-            if date_txt_match is None:
-                date_dt = None
-            else:
-                date_txt = date_txt_match.group()
-                date_dt = self.convert_txt_to_date(date_txt)
+            date_txt = date_txt_match.group()
+            date_dt = self.convert_txt_to_date(date_txt)
 
         return date_dt
 
