@@ -1,0 +1,12 @@
+# Virtual environment
+.venv
+
+# Compilation cache
+__pycache__
+
+# IDE
+.idea
+
+# Files with data
+*.xlsx
+*.csv
