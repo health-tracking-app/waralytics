@@ -24,5 +24,6 @@ jobs:
           sudo apt install tesseract-ocr
           sudo apt install libtesseract-dev
       - name: List files in the folder
+        run: |  
           ls /usr/share/tesseract-ocr
       - run: echo "🍏 This job's status is ${{ job.status }}."
