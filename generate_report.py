@@ -66,71 +66,80 @@ def generate_report(url_to_parse, path_tsr, recon=True, db_username=None, db_pas
 
     # Recognize dates from images
     counter = 1
-    for link in src_link_pictures[1:10]:
+    for link in src_link_pictures[1:3]:
         # We will make several recognition attempts with different configurations
         # Attempt 1
-        print(f"Pic {counter}: attempt 1 : [{link}]")
+        attempt = f"Pic {counter}: attempt 1"
+        print(attempt + f" : [{link}]")
         img_txt = tsr.parse_txt_from_img(link, black_white=True)
         date_dt = date_parser.parse_date_from_txt(img_txt, "pic")
         if not date_dt:
             # Attempt 2
-            print(f"Pic {counter}: attempt 2 : [{link}]")
+            attempt = f"Pic {counter}: attempt 2"
+            print(attempt + f" : [{link}]")
             # In case date overlay is in white color
             img_txt = tsr.parse_txt_from_img(link, invert_img=True, black_white=True)
             date_dt = date_parser.parse_date_from_txt(img_txt, "pic")
         if not date_dt:
             # Attempt 3
-            print(f"Pic {counter}: attempt 3 : [{link}]")
+            attempt = f"Pic {counter}: attempt 3"
+            print(attempt + f" : [{link}]")
             img_txt = tsr.parse_txt_from_img(link)
             date_dt = date_parser.parse_date_from_txt(img_txt, "pic")
         if not date_dt:
             # Attempt 4
-            print(f"Pic {counter}: attempt 4 : [{link}]")
+            attempt = f"Pic {counter}: attempt 4"
+            print(attempt + f" : [{link}]")
             img_txt = tsr.parse_txt_from_img(link, adjust_img=True)
             date_dt = date_parser.parse_date_from_txt(img_txt, "pic")
         if not date_dt:
             # Attempt 5
-            print(f"Pic {counter}: attempt 5 : [{link}]")
+            attempt = f"Pic {counter}: attempt 5"
+            print(attempt + f" : [{link}]")
             img_txt = tsr.parse_txt_from_img(link, adjust_img=True, invert_img=True)
             date_dt = date_parser.parse_date_from_txt(img_txt, "pic")
         if not date_dt:
             # Attempt 6 (metadata)
-            print(f"Pic (meta) {counter}: attempt 6 : [{link}]")
+            attempt = f"Pic (meta) {counter}: attempt 6"
+            print(attempt + f" : [{link}]")
             svr_resp = web_parser.get_html_page(link, server_response=True)
             img_txt = svr_resp.headers['last-modified']
             date_dt = date_parser.convert_txt_to_date(img_txt)
-        elm_rec_txt = [link, img_txt, date_dt]
+        elm_rec_txt = [link, attempt, img_txt, date_dt]
         rec_dates.append(elm_rec_txt)
         counter += 1
 
     # Recognize text from webpages
     counter = 1
-    for link in src_link_twitter[1:10]:
+    for link in src_link_twitter[1:3]:
         # We will make a several attempts with different sleep timeouts to find a balance between speed
         # and effectiveness.
         # Attempt 1
-        print(f"Tweet {counter}: attempt 1 : [{link}]")
+        attempt = f"Tweet {counter}: attempt 1"
+        print(attempt + f" : [{link}]")
         twit_parser = waralytics.WebParser(link, js_content=True, sleep=3)
         twit_txt = twit_parser.extract_date_txt_from_twit()
         date_dt = date_parser.parse_date_from_txt(twit_txt, "twit")
         if not date_dt:
             # Attempt 2
-            print(f"Tweet {counter}: attempt 2 : [{link}]")
+            attempt = f"Tweet {counter}: attempt 2"
+            print(attempt + f" : [{link}]")
             twit_parser = waralytics.WebParser(link, js_content=True, sleep=5)
             twit_txt = twit_parser.extract_date_txt_from_twit()
             date_dt = date_parser.parse_date_from_txt(twit_txt, "twit")
         if not date_dt:
             # Attempt 3
-            print(f"Tweet {counter}: attempt 3 : [{link}]")
+            attempt = f"Tweet {counter}: attempt 3"
+            print(attempt + f" : [{link}]")
             twit_parser = waralytics.WebParser(link, js_content=True, sleep=10)
             twit_txt = twit_parser.extract_date_txt_from_twit()
             date_dt = date_parser.parse_date_from_txt(twit_txt, "twit")
-        elm_rec_txt = [link, twit_txt, date_dt]
+        elm_rec_txt = [link, attempt, twit_txt, date_dt]
         rec_dates.append(elm_rec_txt)
         counter += 1
 
     # Convert list to a data frame
-    rec_dates_df = pd.DataFrame(data=rec_dates, columns=["Source Link Final", "Recognized Text", "Event Date"])
+    rec_dates_df = pd.DataFrame(data=rec_dates, columns=["Source Link Final", "Attempt", "Recognized Text", "Event Date"])
 
     # Merge main data frame with the one with event dates
     df_work = df_work.merge(rec_dates_df, how='outer', on='Source Link Final')
@@ -147,12 +156,12 @@ def generate_report(url_to_parse, path_tsr, recon=True, db_username=None, db_pas
 
 # GENERATE REPORTS W/O DOING RECONCILIATION
 
-# Generate reports
+# Generate report for Ukraine
 war_loss_ua = generate_report(config.url_ua_loss, config.path_tsr, recon=False)
-war_loss_ru = generate_report(config.url_ru_loss, config.path_tsr, recon=False)
-
-# Save reports
 war_loss_ua.to_csv("war_loss_ua.csv", sep=";")
+
+# Generate report for Russia
+war_loss_ru = generate_report(config.url_ru_loss, config.path_tsr, recon=False)
 war_loss_ru.to_csv("war_loss_ru.csv", sep=";")
 
 # GENERATE REPORTS W/ DOING RECONCILIATION AND UPDATING TABLES ON DB
