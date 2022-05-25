@@ -2,8 +2,8 @@ name: GitHub Actions Demo
 on:
   schedule:
     # https://crontab.guru/
-      # run every 3 hrs
-      - cron: "0 */3 * * *"
+    # run every 3 hrs
+    - cron: "0 */3 * * *"
   workflow_dispatch:
 jobs:
   Explore-GitHub-Actions:
