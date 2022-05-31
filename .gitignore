@@ -6,7 +6,3 @@ __pycache__
 
 # IDE
 .idea
-
-# Files with data
-*.xlsx
-*.csv

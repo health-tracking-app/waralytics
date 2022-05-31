@@ -52,6 +52,8 @@ class WebParser:
     def get_html_page(self, web_url, js_content=False, server_response=False, num_retries=5, backoff_factor=0.1,
                       timeout=10):
 
+        # TODO: add error handling for connection timeouts etc.
+
         # Create a session (for pages with dynamically generated
         # content we need a special type of session)
         if js_content:
